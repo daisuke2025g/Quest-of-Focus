@@ -1,0 +1,1300 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>クエスト・オブ・フォーカス - 勉強して世界を救え</title>
+
+  <!-- Tailwind & pako -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=DotGothic16&family=M+PLUS+Rounded+1c:wght@400;700&display=swap');
+    :root { --primary-glow:#00ffff; --secondary-glow:#ff00ff; --danger-glow:#ff006a; }
+    body { font-family:'M PLUS Rounded 1c',sans-serif; background:#0d041a; color:#e0e0e0; }
+    .game-font { font-family:'DotGothic16',sans-serif; }
+    .pixelated { image-rendering: pixelated; }
+    .stylish-container { background:rgba(0,0,0,.4); border:2px solid var(--primary-glow); border-radius:12px; box-shadow:0 0 15px var(--primary-glow), inset 0 0 10px rgba(0,255,255,.2); backdrop-filter: blur(5px); }
+    .stylish-button { position:relative; padding:10px 20px; color:#fff; cursor:pointer; background:linear-gradient(45deg,#209cee,#0073ff); border:2px solid var(--primary-glow); border-radius:8px; text-align:center; transition:.2s; text-shadow:0 0 5px #fff; box-shadow:0 0 10px #209cee; }
+    .stylish-button:hover{ transform:scale(1.05); box-shadow:0 0 20px #0073ff; }
+    .stylish-button:disabled{ background:#555; cursor:not-allowed; box-shadow:none; border-color:#777; }
+    .stylish-button.is-pause,.stylish-button.is-danger{ background:linear-gradient(45deg,#e76e55,#ff3b3b); border-color:var(--danger-glow); box-shadow:0 0 10px var(--danger-glow); }
+    .category-button,.timer-preset-button{ background:rgba(0,0,0,.3); border:1px solid #4a5568; }
+    .category-button.selected,.timer-preset-button.selected{ background:var(--primary-glow); color:#0d041a; border-color:var(--primary-glow); font-weight:bold; box-shadow:0 0 15px var(--primary-glow); }
+    .hp-bar-container{ background:rgba(0,0,0,.5); border-radius:9999px; padding:2px; border:1px solid #666; overflow:hidden; }
+    .hp-bar{ transition:width .3s ease-out; }
+    .modal-overlay{ background:rgba(0,0,0,.8); backdrop-filter:blur(8px); }
+    .modal-content{ max-height:80vh; }
+    .collection-item{ border-bottom:1px solid rgba(0,255,255,.2); }
+    .collection-item.unknown .monster-sprite{ filter:brightness(0) invert(.5); }
+    .monster-option{ cursor:pointer; transition:all .2s; }
+    .monster-option:hover{ transform:scale(1.1); background:rgba(0,255,255,.1); border-color:var(--primary-glow); }
+    @keyframes shake { 0%,100%{transform:translateX(0)} 10%,30%,50%,70%,90%{transform:translateX(-5px)} 20%,40%,60%,80%{transform:translateX(5px)} }
+    .shake{ animation:shake .5s; }
+    @keyframes fadeIn { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+    .fade-in{ animation:fadeIn .5s ease-out; }
+
+    /* 図鑑（完全表示） */
+    .dex-pill{ background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.12); }
+    .dex-card{ background:linear-gradient(180deg,#14142b 0%, #0f1022 100%); box-shadow:0 8px 24px rgba(0,0,0,.35); border:1px solid rgba(255,255,255,.08) }
+    .dex-sprite{ background-repeat:no-repeat; image-rendering:pixelated; display:block }
+    .tab { cursor:pointer; padding:.5rem .75rem; border-radius:.5rem; border:1px solid rgba(255,255,255,.15); }
+    .tab.active{ background:var(--primary-glow); color:#0d041a; box-shadow:0 0 15px var(--primary-glow); border-color:var(--primary-glow); }
+  </style>
+
+  <!-- Firebase compat -->
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+
+  <script>
+    // === ここを環境に合わせて設定 ===
+    // GAS を使う場合：公開したWebアプリURLを設定（推奨）
+    const GAS_BASE = '<<GASのウェブアプリURL>>';
+    // Drive直リンク（GAS未使用のフォールバック）
+    const DRIVE_ATLAS_URL = 'https://drive.google.com/uc?export=download&id=1dlzN6o48a10UjA2NLxKoLwbhfJgCy5TY';
+    const DRIVE_JSON_URL  = 'https://drive.google.com/uc?export=download&id=16QlBIdw5Scz4USjpk0z6bQXNMIsdDH6J';
+
+    // === Firebase 初期化（compat）===
+    const firebaseConfig = {
+      apiKey: "AIzaSyATOEcPSR7ZdIBpcSJs25pbNXZlSRuBIpQ",
+      authDomain: "quest-of-focus.firebaseapp.com",
+      projectId: "quest-of-focus",
+      storageBucket: "quest-of-focus.firebasestorage.app",
+      messagingSenderId: "473538034583",
+      appId: "1:473538034583:web:b6f017bf1cb83793d162d2",
+      measurementId: "G-WBNV0CXBJD"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db   = firebase.firestore();
+    db.settings({ experimentalAutoDetectLongPolling: true, useFetchStreams: false });
+    firebase.firestore().enablePersistence({ synchronizeTabs: true }).catch(()=>{});
+    window.addEventListener("online",  () => firebase.firestore().enableNetwork().catch(()=>{}));
+    window.addEventListener("offline", () => firebase.firestore().disableNetwork().catch(()=>{}));
+  </script>
+</head>
+
+<body class="flex flex-col min-h-screen">
+  <!-- ヘッダー -->
+  <header class="p-4 text-center">
+    <h1 class="text-4xl font-bold game-font text-yellow-400" style="text-shadow:0 0 10px #ffc700;">⚔️ クエスト・オブ・フォーカス ⚔️</h1>
+    <p class="text-gray-400">集中が、君の武器になる。</p>
+  </header>
+
+  <main id="main-content" class="flex-grow container mx-auto p-4 flex flex-col gap-8">
+    <div class="lg:w-2/3 w-full mx-auto flex flex-col gap-8">
+      <!-- 認証＋クラウド保存UI -->
+      <div class="stylish-container p-4">
+        <div class="flex flex-col gap-2">
+          <div class="flex flex-wrap gap-2 items-center">
+            <input id="auth-email" type="email" placeholder="メールアドレス" class="flex-1 min-w-[180px] px-3 py-2 bg-gray-900/70 border border-gray-600 rounded-md"/>
+            <input id="auth-pass" type="password" placeholder="パスワード（6文字以上）" class="flex-1 min-w-[180px] px-3 py-2 bg-gray-900/70 border border-gray-600 rounded-md"/>
+            <button id="signup-btn" class="stylish-button text-sm">新規登録</button>
+            <button id="login-btn"  class="stylish-button text-sm" style="background:linear-gradient(45deg,#22c55e,#16a34a)">ログイン</button>
+            <button id="logout-btn" class="stylish-button text-sm is-danger">ログアウト</button>
+          </div>
+          <div class="flex flex-wrap gap-2 items-center">
+            <button id="cloud-save-button" class="stylish-button text-sm">クラウド保存</button>
+            <button id="cloud-load-button" class="stylish-button text-sm">クラウド読込</button>
+            <span class="text-xs text-gray-400 ml-auto" id="auth-state">未ログイン</span>
+          </div>
+          <div class="text-sm text-blue-300" id="auth-msg"></div>
+          <div class="text-sm text-rose-300" id="auth-error"></div>
+        </div>
+      </div>
+
+      <!-- 上部：タイマー/戦闘表示エリア -->
+      <div id="main-display" class="stylish-container p-6 h-fit">
+        <!-- タイマービュー -->
+        <div id="timer-view">
+          <div id="header-stats" class="flex justify-around text-center mb-4 game-font">
+            <div>
+              <p class="text-xs text-cyan-400">累計収入</p><p id="total-earnings-display" class="text-lg">0円</p>
+            </div>
+            <div>
+              <p class="text-xs text-cyan-400">称号</p><p id="title-display" class="text-lg">-</p>
+            </div>
+            <div>
+              <p class="text-xs text-cyan-400">時給</p><p id="wage-display" class="text-lg">1177円</p>
+            </div>
+          </div>
+
+          <div id="quote-container" class="p-4 mb-4 bg-black/30 rounded-md text-center">
+            <p id="quote-text" class="text-sm italic"></p>
+            <p id="quote-pronunciation" class="text-xs mt-1 text-gray-400"></p>
+            <p id="quote-translation" class="text-sm mt-2"></p>
+            <p id="quote-source" class="text-xs text-right mt-2 text-cyan-400"></p>
+          </div>
+
+          <div id="timer-display" class="text-7xl font-bold text-center text-white bg-black/50 rounded-lg py-4 my-4 game-font">
+            00:30<span class="text-5xl">:00</span><span class="text-5xl" id="milliseconds">.00</span>
+          </div>
+          <p id="xp-bonus-display" class="text-center text-yellow-400 game-font"></p>
+        </div>
+
+        <!-- 戦闘ビュー -->
+        <div id="battle-view" class="hidden">
+          <div class="relative w-full aspect-video bg-black rounded-lg">
+            <canvas id="battle-canvas" class="w-full h-full pixelated"></canvas>
+          </div>
+          <div id="battle-message" class="text-center p-2 text-lg text-yellow-300 game-font h-16 flex items-center justify-center"></div>
+          <div id="battle-ui" class="mt-2 bg-black/50 p-4 rounded-md">
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <h3 class="text-lg game-font"><span id="player-name">ゆうしゃ</span> Lv.<span id="player-level">1</span></h3>
+                <div class="hp-bar-container"><div id="player-hp-bar" class="bg-green-500 h-3 rounded-full hp-bar"></div></div>
+                <p class="text-xs">HP: <span id="player-hp">100</span>/<span id="player-max-hp">100</span></p>
+              </div>
+              <div>
+                <h3 class="text-lg game-font"><span id="monster-name"></span> <span id="monster-level" class="text-base"></span></h3>
+                <div class="hp-bar-container"><div id="monster-hp-bar" class="bg-red-500 h-3 rounded-full hp-bar"></div></div>
+                <p class="text-xs">HP: <span id="monster-hp">50</span>/<span id="monster-max-hp">50</span></p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 下部：コントロールパネル/メニュー -->
+      <div class="stylish-container p-6 h-fit">
+        <div id="control-panel">
+          <div class="space-y-4">
+            <div class="flex flex-wrap justify-center gap-1">
+              <button class="stylish-button timer-preset-button text-xs py-1 px-2" data-minutes="3">3分</button>
+              <button class="stylish-button timer-preset-button text-xs py-1 px-2" data-minutes="5">5分</button>
+              <button class="stylish-button timer-preset-button text-xs py-1 px-2" data-minutes="10">10分</button>
+              <button class="stylish-button timer-preset-button text-xs py-1 px-2" data-minutes="20">20分</button>
+              <button class="stylish-button timer-preset-button text-xs py-1 px-2 selected" data-minutes="30">30分</button>
+              <button class="stylish-button timer-preset-button text-xs py-1 px-2" data-minutes="45">45分</button>
+              <button class="stylish-button timer-preset-button text-xs py-1 px-2" data-minutes="60">60分</button>
+              <span class="w-full my-1 border-t border-cyan-700/50"></span>
+              <button class="p-1 text-xs rounded category-button" data-category="国語">国語</button>
+              <button class="p-1 text-xs rounded category-button" data-category="数学">数学</button>
+              <button class="p-1 text-xs rounded category-button" data-category="英語">英語</button>
+              <button class="p-1 text-xs rounded category-button" data-category="理科">理科</button>
+              <button class="p-1 text-xs rounded category-button" data-category="社会">社会</button>
+              <button class="p-1 text-xs rounded category-button selected" data-category="その他">その他</button>
+            </div>
+            <div>
+              <div class="flex items-center gap-2">
+                <input type="text" id="task-name" placeholder="課題名（例：問題集 p.20-25）" class="w-full px-3 py-2 bg-gray-900/70 border border-gray-600 rounded-md">
+              </div>
+            </div>
+            <button id="start-button" class="w-full font-bold py-3 text-xl stylish-button">▶ 対戦相手を選ぶ</button>
+          </div>
+        </div>
+        <div id="battle-controls" class="hidden space-y-2">
+          <button id="pause-button" class="w-full font-bold py-3 text-xl stylish-button is-pause">一時停止</button>
+          <button id="retreat-button" class="w-full font-bold py-3 text-xl stylish-button is-danger">中断する</button>
+        </div>
+        <div id="post-focus-controls" class="hidden space-y-2">
+          <button id="watch-battle-button" class="w-full font-bold py-3 text-xl stylish-button">▶ 戦闘開始</button>
+        </div>
+      </div>
+
+      <!-- メニュー -->
+      <div class="stylish-container p-6 flex-grow">
+        <h2 class="text-2xl font-bold game-font text-cyan-400 mb-4">メニュー</h2>
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+          <button id="status-button" class="w-full font-bold py-3 text-xl stylish-button">ステータス</button>
+          <button id="quote-collection-button" class="w-full font-bold py-3 text-xl stylish-button">名言集</button>
+          <button id="log-button" class="w-full font-bold py-3 text-xl stylish-button">冒険の記録</button>
+          <button id="collection-button" class="w-full font-bold py-3 text-xl stylish-button">モンスター図鑑</button>
+          <button id="generate-spell-button" class="w-full font-bold py-3 text-xl stylish-button">復活の呪文</button>
+          <button id="use-spell-button" class="w-full font-bold py-3 text-xl stylish-button">呪文をとなえる</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer class="text-center p-4">
+    <p id="save-timestamp" class="text-xs text-gray-600 game-font">セーブデータがありません</p>
+  </footer>
+
+  <!-- モーダル（対戦相手選択） -->
+  <div id="monster-select-modal" class="hidden fixed inset-0 modal-overlay flex items-center justify-center z-50">
+    <div class="p-8 rounded-lg text-center max-w-2xl mx-auto stylish-container fade-in">
+      <h3 id="monster-select-title" class="text-2xl font-bold mb-6 game-font text-yellow-400">対戦相手を選んでください</h3>
+      <div id="monster-options" class="flex justify-around items-stretch gap-4"></div>
+      <button id="monster-select-cancel" class="stylish-button is-danger mt-8">やめる</button>
+    </div>
+  </div>
+
+  <!-- モーダル（汎用） -->
+  <div id="result-modal" class="hidden fixed inset-0 modal-overlay flex items-center justify-center z-50">
+    <div class="p-8 rounded-lg text-center max-w-sm mx-auto stylish-container fade-in">
+      <h3 id="result-modal-title" class="text-2xl font-bold mb-4 game-font text-yellow-400"></h3>
+      <p id="result-modal-message" class="mb-6 whitespace-pre-wrap"></p>
+      <div id="modal-button-container" class="mt-6 flex justify-center gap-4">
+        <button id="result-modal-close" class="stylish-button">とじる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- モーダル（情報系） -->
+  <div id="info-modal" class="hidden fixed inset-0 modal-overlay flex items-center justify-center z-50">
+    <div class="w-11/12 md:w-2/3 lg:w-1/2 p-6 rounded-lg stylish-container fade-in modal-content">
+      <div class="flex justify-between items-center mb-4">
+        <h3 id="info-modal-title" class="text-3xl font-bold game-font text-cyan-400"></h3>
+        <button id="info-modal-close" class="text-3xl text-white">&times;</button>
+      </div>
+      <div id="info-modal-body" class="overflow-y-auto pr-4" style="max-height:65vh;"></div>
+    </div>
+  </div>
+
+  <!-- モーダル（図鑑：アトラス完全表示＋撃破図鑑のタブ） -->
+  <div id="dex-modal" class="hidden fixed inset-0 modal-overlay flex items-center justify-center z-50">
+    <div class="w-11/12 max-w-6xl p-4 md:p-6 rounded-2xl stylish-container fade-in modal-content">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-2xl md:text-3xl font-bold game-font text-yellow-400">モンスター図鑑</h3>
+        <button id="dex-close" class="stylish-button">閉じる</button>
+      </div>
+
+      <!-- タブ -->
+      <div class="flex gap-2 mb-4">
+        <button id="tab-atlas" class="tab active">アトラス完全表示</button>
+        <button id="tab-book" class="tab">撃破図鑑</button>
+      </div>
+
+      <!-- ステータス -->
+      <div class="mb-3 text-xs text-cyan-300" id="dex-status">準備中…</div>
+
+      <!-- コンテンツ -->
+      <div id="dex-atlas" class="grid gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4"></div>
+      <div id="dex-book" class="hidden"></div>
+    </div>
+  </div>
+
+  <script>
+    // ==== DOM参照（必要要素はすべて存在します） ====
+    const canvas = document.getElementById('battle-canvas'), ctx = canvas?.getContext('2d');
+    const timerDisplay = document.getElementById('timer-display'), millisecondsSpan = document.getElementById('milliseconds');
+    const startButton = document.getElementById('start-button'), pauseButton = document.getElementById('pause-button'), retreatButton = document.getElementById('retreat-button');
+    const controlPanel = document.getElementById('control-panel'), battleControls = document.getElementById('battle-controls');
+    const playerNameSpan = document.getElementById('player-name'), playerLevelSpan = document.getElementById('player-level'), playerHpSpan = document.getElementById('player-hp'), playerMaxHpSpan = document.getElementById('player-max-hp'), playerHpBar = document.getElementById('player-hp-bar');
+    const monsterNameSpan = document.getElementById('monster-name'), monsterLevelSpan = document.getElementById('monster-level'), monsterHpSpan = document.getElementById('monster-hp'), monsterMaxHpSpan = document.getElementById('monster-max-hp'), monsterHpBar = document.getElementById('monster-hp-bar');
+    const resultModal = document.getElementById('result-modal'), resultModalTitle = document.getElementById('result-modal-title'), resultModalMessage = document.getElementById('result-modal-message'), modalButtonContainer = document.getElementById('modal-button-container');
+    const infoModal = document.getElementById('info-modal'), infoModalTitle = document.getElementById('info-modal-title'), infoModalBody = document.getElementById('info-modal-body'), infoModalClose = document.getElementById('info-modal-close');
+    const logButton = document.getElementById('log-button'), collectionButton = document.getElementById('collection-button'), statusButton = document.getElementById('status-button'), quoteCollectionButton = document.getElementById('quote-collection-button');
+    const generateSpellButton = document.getElementById('generate-spell-button'), useSpellButton = document.getElementById('use-spell-button');
+    const battleMessage = document.getElementById('battle-message');
+    const monsterSelectModal = document.getElementById('monster-select-modal'), monsterOptionsContainer = document.getElementById('monster-options'), monsterSelectCancel = document.getElementById('monster-select-cancel'), monsterSelectTitle = document.getElementById('monster-select-title');
+    const timerView = document.getElementById('timer-view');
+    const battleView = document.getElementById('battle-view');
+    const timerPresetButtons = document.querySelectorAll('.timer-preset-button');
+    const categoryButtons = document.querySelectorAll('.category-button');
+    const xpBonusDisplay = document.getElementById('xp-bonus-display');
+    const totalEarningsDisplay = document.getElementById('total-earnings-display');
+    const titleDisplay = document.getElementById('title-display');
+    const wageDisplay = document.getElementById('wage-display');
+    const saveTimestamp = document.getElementById('save-timestamp');
+
+    // 図鑑モーダル
+    const dexModal = document.getElementById('dex-modal');
+    const dexClose = document.getElementById('dex-close');
+    const tabAtlas = document.getElementById('tab-atlas');
+    const tabBook  = document.getElementById('tab-book');
+    const dexAtlasContainer = document.getElementById('dex-atlas');
+    const dexBookContainer  = document.getElementById('dex-book');
+    const dexStatus = document.getElementById('dex-status');
+
+    const $ = (id)=>document.getElementById(id);
+    const showMsg=(t)=>{$("auth-msg").textContent=t||"";}
+    const showError=(t)=>{$("auth-error").textContent=t||"";}
+    const btnLock=(locked)=>{
+      ["signup-btn","login-btn","logout-btn","cloud-save-button","cloud-load-button"].forEach(id=>{
+        const el=$(id); if(!el) return;
+        el.disabled=!!locked;
+        el.style.opacity=locked?0.7:1;
+        el.style.cursor=locked?"not-allowed":"pointer";
+      });
+    };
+
+    // ==== ゲーム状態 ====
+    let endTimer, animationFrameId, startTime, remainingTime, totalTime = 30*60*1000, isTimerRunning=false, isPaused=false;
+    let playerData = { name:"ゆうしゃ", level:1, hp:100, maxHp:100, exp:0, masterDefeatedLevel:0, totalStudyTime:0, totalEarnings:0, hourlyWage:1177 };
+    let studyLog = [], monsterCollection = {}, seenQuotes = [];
+    let currentMonster = null, damageEffects = [], particles = [];
+    let selectedCategory = "その他";
+    const sleep = (ms)=>new Promise(res=>setTimeout(res,ms));
+
+    // ==== データ ====
+    const timeBonuses = {3:1,5:2,10:5,20:10,30:15,45:20,60:30};
+    const titles = [
+      {hours:777,name:"God of Focus"},{hours:700,name:"全宇宙の神"},{hours:600,name:"経営の神"},
+      {hours:500,name:"伝説の経営者"},{hours:400,name:"世界の支配者"},{hours:300,name:"グループCEO"},
+      {hours:200,name:"代表取締役会長"},{hours:100,name:"代表取締役社長"},{hours:99,name:"取締役会議長"},
+      {hours:95,name:"代表取締役副社長"},{hours:90,name:"専務取締役"},{hours:85,name:"常務取締役"},
+      {hours:80,name:"取締役"},{hours:75,name:"執行役員"},{hours:70,name:"執行役員補"},
+      {hours:65,name:"本部長"},{hours:60,name:"本部長補"},{hours:55,name:"部長"},{hours:50,name:"部長代理"},
+      {hours:45,name:"次長"},{hours:40,name:"課長"},{hours:35,name:"課長代理"},{hours:30,name:"係長"},
+      {hours:25,name:"主任"},{hours:20,name:"新人リーダー"},{hours:15,name:"正社員"},{hours:10,name:"契約社員"},
+      {hours:5,name:"見習い社員"},{hours:3,name:"インターン"},{hours:1,name:"アルバイト"},{hours:0,name:"求職者"}
+    ];
+
+    // ===== ▼▼▼ アトラス読込と描画ユーティリティ ▼▼▼ =====
+    let atlasImage = null;        // Image オブジェクト
+    let atlasFrames = {};         // { key: {x,y,w,h} }
+    let atlasList   = [];         // [{name, frame:{x,y,w,h}}] ※完全表示タブで使用
+    let atlasReady  = false;
+    let atlasMetaW = 0, atlasMetaH = 0;
+    let lastAtlasUrl = '';
+
+    async function loadAtlasAssets(useGAS = true) {
+      atlasReady = false;
+
+      // JSON 読み込み
+      const jsonUrl = useGAS && GAS_BASE && GAS_BASE !== '<<GASのウェブアプリURL>>'
+        ? `${GAS_BASE}?file=json&v=${Date.now()}`
+        : `${DRIVE_JSON_URL}&v=${Date.now()}`;
+
+      const res = await fetch(jsonUrl, { cache: 'no-store' });
+      if (!res.ok) throw new Error('アトラスJSON読込失敗');
+      const data = await res.json();
+
+      atlasFrames = {};
+      atlasList = [];
+      if (Array.isArray(data.frames)) {
+        data.frames.forEach(f => {
+          const name = f.name || f.filename;
+          const fr = f.frame;
+          if (name && fr) {
+            atlasFrames[name] = { x: fr.x, y: fr.y, w: fr.w, h: fr.h };
+            atlasList.push({ name, frame: { x: fr.x, y: fr.y, w: fr.w, h: fr.h } });
+          }
+        });
+      } else {
+        throw new Error('未知のアトラスJSON形式');
+      }
+      atlasMetaW = data?.meta?.size?.w || 0;
+      atlasMetaH = data?.meta?.size?.h || 0;
+
+      // 画像読み込み
+      const imgUrl = useGAS && GAS_BASE && GAS_BASE !== '<<GASのウェブアプリURL>>'
+        ? `${GAS_BASE}?file=atlas&v=${Date.now()}`
+        : `${DRIVE_ATLAS_URL}&v=${Date.now()}`;
+
+      atlasImage = new Image();
+      atlasImage.referrerPolicy = 'no-referrer';
+      atlasImage.crossOrigin = 'anonymous';
+      await new Promise((resolve, reject) => {
+        atlasImage.onload = () => resolve();
+        atlasImage.onerror = () => reject(new Error('アトラス画像の読込に失敗しました'));
+        atlasImage.src = imgUrl;
+      });
+      lastAtlasUrl = imgUrl;
+      atlasReady = true;
+    }
+
+    function drawAtlasSprite(ctx, key, x, y, scale = 1) {
+      if (!atlasReady || !atlasImage || !atlasFrames[key]) return false;
+      const { x: sx, y: sy, w, h } = atlasFrames[key];
+      const dw = w * scale, dh = h * scale;
+      ctx.drawImage(atlasImage, sx, sy, w, h, x - dw / 2, y - dh, dw, dh);
+      return true;
+    }
+
+    function getAtlasKeyForVariantJP(baseName, variant) {
+      if (variant === 'master')   return `${baseName}師範`;
+      if (variant === 'awaken')   return `覚醒した${baseName}`;
+      if (variant === 'ultimate') return `最強の${baseName}`;
+      return baseName;
+    }
+
+    function drawMonsterFromAtlasOrFallback(ctx, mon, x, y, scale) {
+      const key = getAtlasKeyForVariantJP(mon.atlasBaseName || mon.name, mon.variant || 'normal');
+      if (key && drawAtlasSprite(ctx, key, x, y, scale)) return true;
+      return false;
+    }
+    // ===== ▲▲▲ アトラス関連ここまで ▲▲▲ =====
+
+    // ===== ▼▼▼ 48種モンスター定義（atlasBaseNameはJSONの"name"に一致） ▼▼▼ =====
+    const BASE_MONSTERS = [
+      { id:'BASS_Rintaro', name:'BASS Rintaro', atlasBaseName:'BASS Rintaro', baseHp:110, baseAttack:18, baseExp:220, rarity:'rare', tier:2 },
+      { id:'wolf', name:'ウルフ', atlasBaseName:'ウルフ', baseHp:70,  baseAttack:15, baseExp:120, rarity:'uncommon', tier:1 },
+      { id:'ghost', name:'ゴースト', atlasBaseName:'ゴースト', baseHp:60, baseAttack:10, baseExp:100, rarity:'uncommon', tier:1 },
+      { id:'golem', name:'ゴーレム', atlasBaseName:'ゴーレム', baseHp:100, baseAttack:10, baseExp:150, rarity:'uncommon', tier:1 },
+      { id:'goblin', name:'ゴブリン', atlasBaseName:'ゴブリン', baseHp:50, baseAttack:8, baseExp:80, rarity:'common', tier:1 },
+      { id:'slime', name:'スライム', atlasBaseName:'スライム', baseHp:30, baseAttack:5, baseExp:50, rarity:'common', tier:1 },
+      { id:'pineapple', name:'パイナップル', atlasBaseName:'パイナップル', baseHp:1, baseAttack:1, baseExp:7777, rarity:'mythical', tier:1 },
+      { id:'bat', name:'バット', atlasBaseName:'バット', baseHp:40, baseAttack:12, baseExp:70, rarity:'common', tier:1 },
+      { id:'mimic', name:'ミミック', atlasBaseName:'ミミック', baseHp:80, baseAttack:20, baseExp:200, rarity:'rare', tier:1 },
+      { id:'ikeuchi_rage', name:'池内t(ガチギレ)', atlasBaseName:'池内t(ガチギレ)', baseHp:180, baseAttack:25, baseExp:350, rarity:'very_rare', tier:2 },
+      { id:'ikeuchi_ham', name:'池内t(ハムタロー)', atlasBaseName:'池内t(ハムタロー)', baseHp:120, baseAttack:16, baseExp:260, rarity:'rare', tier:2 },
+      { id:'ikeuchi_kitaro', name:'池内ｔ（鬼太郎）', atlasBaseName:'池内ｔ（鬼太郎）', baseHp:140, baseAttack:18, baseExp:300, rarity:'rare', tier:2 },
+      { id:'ikeuchi', name:'池内t', atlasBaseName:'池内t', baseHp:150, baseAttack:22, baseExp:320, rarity:'very_rare', tier:3 },
+      { id:'noi_viz', name:'野井t(ビジュ最高)', atlasBaseName:'野井t(ビジュ最高)', baseHp:150, baseAttack:24, baseExp:330, rarity:'very_rare', tier:3 },
+      { id:'noi_abs', name:'野井t(腹筋バキバキ）', atlasBaseName:'野井t(腹筋バキバキ）', baseHp:170, baseAttack:26, baseExp:360, rarity:'very_rare', tier:3 },
+      { id:'noi', name:'野井t', atlasBaseName:'野井t', baseHp:160, baseAttack:24, baseExp:340, rarity:'very_rare', tier:3 },
+    ];
+    const MONSTER_POOL = BASE_MONSTERS.slice(0, 12);
+    const rarityWeights = { common: 40, uncommon: 30, rare: 15, very_rare: 10, mythical: 5 };
+    const VARIANTS = {
+      normal:   { label: '',       stat: 1.0,  exp: 1.0,  weight: 1.0 },
+      master:   { label: '師範',   stat: 1.5,  exp: 2.0,  weight: 0.5 },
+      awaken:   { label: '覚醒',   stat: 5.0,  exp: 10.0, weight: 0.3 },
+      ultimate: { label: '最強',   stat: 10.0, exp: 20.0, weight: 0.1 }
+    };
+
+    // ==== 初期化 ====
+    function initialize(){
+      loadDataFromLocalStorage();
+      resizeCanvas();
+      updateTimerDisplay(totalTime);
+      updateXpBonusDisplay();
+
+      // アトラスを先に読む（GAS→Driveフォールバック）
+      safeLoadAtlas();
+
+      // UIイベント
+      startButton.addEventListener('click', prepareBattle);
+      pauseButton.addEventListener('click', togglePause);
+      retreatButton.addEventListener('click', retreat);
+      infoModalClose.addEventListener('click', ()=>infoModal.classList.add('hidden'));
+      logButton.addEventListener('click', showLog);
+      collectionButton.addEventListener('click', openDexModal);
+      statusButton.addEventListener('click', showStatus);
+      quoteCollectionButton.addEventListener('click', showQuoteCollection);
+      generateSpellButton.addEventListener('click', generateResurrectionSpell);
+      useSpellButton.addEventListener('click', showUseSpellModal);
+      monsterSelectCancel.addEventListener('click', ()=>monsterSelectModal.classList.add('hidden'));
+      document.getElementById('watch-battle-button').addEventListener('click', ()=>{ document.getElementById('post-focus-controls').classList.add('hidden'); startTurnBasedBattle(); });
+
+      categoryButtons.forEach(button=>{
+        button.addEventListener('click', ()=>{
+          categoryButtons.forEach(btn=>btn.classList.remove('selected'));
+          button.classList.add('selected'); selectedCategory = button.dataset.category;
+        });
+      });
+
+      timerPresetButtons.forEach(button=>{
+        button.addEventListener('click', ()=>{
+          if(isTimerRunning) return;
+          timerPresetButtons.forEach(btn=>btn.classList.remove('selected'));
+          button.classList.add('selected');
+          totalTime = parseInt(button.dataset.minutes)*60*1000;
+          updateTimerDisplay(totalTime); updateXpBonusDisplay();
+        });
+      });
+
+      window.addEventListener('beforeunload',(e)=>{
+        saveDataToLocalStorage(true);
+        if(isTimerRunning){ e.preventDefault(); e.returnValue=''; }
+      });
+
+      // 認証
+      $("signup-btn").addEventListener("click", onSignup);
+      $("login-btn").addEventListener("click", onLogin);
+      $("logout-btn").addEventListener("click", onLogout);
+      $("cloud-save-button").addEventListener("click", ()=>cloudSave(buildSavePayload(), true));
+      $("cloud-load-button").addEventListener("click", cloudLoad);
+
+      auth.onAuthStateChanged(async (user)=>{
+        if(user){
+          $("auth-state").textContent = `ログイン中：${user.email}`;
+          showMsg("ログイン済みです。"); showError("");
+          const ref = db.collection("users").doc(user.uid);
+          const snap = await ref.get();
+          if(!snap.exists){
+            await ref.set({ email:user.email, role:"student", createdAt: firebase.firestore.FieldValue.serverTimestamp(), lastLoginAt: firebase.firestore.FieldValue.serverTimestamp(), });
+          }else{
+            await ref.update({ lastLoginAt: firebase.firestore.FieldValue.serverTimestamp() });
+          }
+        }else{
+          $("auth-state").textContent = "未ログイン";
+        }
+      });
+
+      // 図鑑モーダル
+      dexClose.addEventListener('click', closeDexModal);
+      tabAtlas.addEventListener('click', ()=>switchDexTab('atlas'));
+      tabBook.addEventListener('click',  ()=>switchDexTab('book'));
+
+      initializeGameUI();
+      setInterval(()=>{ if(auth.currentUser) cloudSave(buildSavePayload(), false); }, 60*1000);
+    }
+
+    async function safeLoadAtlas(){
+      try{
+        await loadAtlasAssets(true);
+      }catch(e1){
+        console.warn('GAS経由失敗→Drive直リンクで再試行', e1);
+        try{ await loadAtlasAssets(false); }catch(e2){ console.error('アトラス読込失敗', e2); }
+      }
+    }
+
+    function initializeGameUI(){
+      spawnDummyMonster();
+      updateUI();
+      displayRandomQuote();
+      requestAnimationFrame(gameLoop);
+    }
+
+    // ==== 認証処理 ====
+    async function onSignup(e){ e.preventDefault(); const email=$("auth-email").value.trim(); const pass=$("auth-pass").value; showMsg(""); showError(""); if(!email || pass.length<6){ showError("メールと6文字以上のパスワードを入力してください。"); return; } try{ btnLock(true); await auth.createUserWithEmailAndPassword(email, pass); showMsg("新規登録に成功しました。ログイン済みに切り替わります。"); }catch(err){ showError(err.message||"新規登録に失敗しました。"); } finally{ btnLock(false); } }
+    async function onLogin(e){ e.preventDefault(); const email=$("auth-email").value.trim(); const pass=$("auth-pass").value; showMsg(""); showError(""); if(!email || !pass){ showError("メールとパスワードを入力してください。"); return; } try{ btnLock(true); await auth.signInWithEmailAndPassword(email, pass); showMsg("ログインしました。"); }catch(err){ showError(err.message||"ログインに失敗しました。"); } finally{ btnLock(false); } }
+    async function onLogout(e){ e.preventDefault(); showMsg(""); showError(""); try{ btnLock(true); await auth.signOut(); showMsg("ログアウトしました。"); }catch(err){ showError(err.message||"ログアウトに失敗しました。"); } finally{ btnLock(false); } }
+
+    // ==== Firestore クラウド保存/読込 ====
+    function buildSavePayload(){ return { playerData, studyLog, monsterCollection, seenQuotes, savedAt: new Date().toISOString() }; }
+    let lastCloudSaveAt = 0;
+    async function cloudSave(dataObj, verbose){
+      const user = auth.currentUser; if(!user){ if(verbose) showError("未ログインです。ログイン後に保存してください。"); return; }
+      const now = Date.now(); if(!verbose && now - lastCloudSaveAt < 10*1000) return; lastCloudSaveAt = now;
+      try{
+        btnLock(true);
+        await firebase.firestore().enableNetwork().catch(()=>{});
+        const ref = db.collection("users").doc(user.uid).collection("saves").doc("latest");
+        await ref.set({ data: dataObj, updatedAt: firebase.firestore.FieldValue.serverTimestamp(), }, { merge:true });
+        if(verbose) showMsg("クラウド保存に成功しました。");
+      }catch(e){
+        showError("クラウド保存に失敗: " + (e.message||e));
+      }finally{ btnLock(false); }
+    }
+
+    async function cloudLoad(){
+      const user = auth.currentUser; if(!user){ showError("未ログインです。ログイン後に読み込んでください。"); return; }
+      try{
+        btnLock(true);
+        await firebase.firestore().enableNetwork().catch(()=>{});
+        const ref = db.collection("users").doc(user.uid).collection("saves").doc("latest");
+        let snap = await ref.get();
+        if(!snap.exists){ showMsg("クラウドにデータがありません。"); return; }
+        const payload = snap.data()?.data;
+        if(!payload){ showMsg("保存データの形式が不正です。"); return; }
+        playerData = payload.playerData || playerData;
+        studyLog = payload.studyLog || [];
+        monsterCollection = payload.monsterCollection || {};
+        seenQuotes = payload.seenQuotes || [];
+        saveDataToLocalStorage(true);
+        updateUI();
+        showMsg("クラウド読込に成功しました。");
+      }catch(e){
+        showError("クラウド読込に失敗: " + (e.message||e));
+      }finally{ btnLock(false); }
+    }
+
+    // ==== キャンバス ====
+    function resizeCanvas(){
+      if(!canvas || !ctx) return;
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.setTransform(1,0,0,1,0,0);
+      ctx.scale(dpr,dpr);
+      ctx.imageSmoothingEnabled = false;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    function gameLoop(){
+      if(battleView && !battleView.classList.contains('hidden')){
+        drawBattleScene();
+        requestAnimationFrame(gameLoop);
+      }
+    }
+
+    function drawBattleScene(){
+      if(!canvas || !ctx) return;
+      const w = canvas.width/(window.devicePixelRatio||1), h = canvas.height/(window.devicePixelRatio||1);
+      ctx.clearRect(0,0,w,h);
+      ctx.fillStyle = '#0d041a'; ctx.fillRect(0,0,w,h);
+      const grad = ctx.createLinearGradient(0,h*0.8,0,h); grad.addColorStop(0,'#3a1d3b'); grad.addColorStop(1,'#2a0d2b'); ctx.fillStyle = grad; ctx.fillRect(0,h*0.8,w,h*0.2);
+
+      if (!currentMonster || !drawMonsterFromAtlasOrFallback(ctx, currentMonster, w*0.75, h*0.8, 0.25)) {
+        drawMonsterSprite(ctx, currentMonster || {color:'#999', shape:'rect'}, w*0.75, h*0.8, 1.2);
+      }
+      // プレイヤー影
+      drawMonsterSprite(ctx, {color:'#4682B4', shape:'rect'}, w*0.25, h*0.8, 1.2);
+
+      // エフェクト
+      particles = particles.filter(p=>p.life>0);
+      particles.forEach(p=>{ p.x+=p.vx; p.y+=p.vy; p.alpha-=.02; p.life--; ctx.globalAlpha = p.alpha>0?p.alpha:0; ctx.fillStyle=p.color; ctx.fillRect(p.x,p.y,3,3); });
+      ctx.globalAlpha=1;
+      damageEffects = damageEffects.filter(e=>e.alpha>0);
+      damageEffects.forEach(e=>{ ctx.globalAlpha=e.alpha; ctx.fillStyle=e.color||'white'; ctx.font='bold 24px DotGothic16'; ctx.fillText(e.text,e.x,e.y); e.y+=e.vy; e.alpha-=.02; });
+      ctx.globalAlpha=1;
+    }
+
+    function drawMonsterSprite(targetCtx, monster, x, y, scale){
+      if(!monster || !targetCtx) return;
+      const size = 64*scale;
+      targetCtx.fillStyle = (monster && monster.color) || '#999';
+      const drawX = x - size/2, drawY = y - size;
+      if(monster?.shape==='circle'){
+        targetCtx.beginPath(); targetCtx.arc(x, y-size/2, size/2, 0, Math.PI*2); targetCtx.fill();
+      } else if(monster?.shape==='triangle'){
+        targetCtx.beginPath(); targetCtx.moveTo(drawX, drawY+size); targetCtx.lineTo(drawX+size, drawY+size); targetCtx.lineTo(drawX+size/2, drawY); targetCtx.closePath(); targetCtx.fill();
+      } else {
+        targetCtx.fillRect(drawX, drawY, size, size);
+      }
+    }
+
+    function displayRandomQuote(){
+      const quotes=[
+        { text:"七転び八起き", pronunciation:"ななころびやおき", translation:"七回倒れても八回起き上がる。", source:"日本" },
+        { text:"Perfer et obdura; dolor hic tibi proderit olim.", pronunciation:"ペルフェル エト オブドゥーラ…", translation:"耐えよ、そして負けるな…", source:"ラテン語" },
+        { text:"Where there's a will, there's a way.", pronunciation:"ウェア ゼアズ ア ウィル…", translation:"意志あるところに道は開ける。", source:"アメリカ" },
+        { text:"滴水穿石", pronunciation:"ディーシュイチュアンシー", translation:"滴る水は石をも穿つ。", source:"中国" },
+        { text:"Übung macht den Meister.", pronunciation:"ユーブング マハト…", translation:"練習が名人を作る。", source:"ドイツ" }
+      ];
+      const q = quotes[Math.floor(Math.random()*quotes.length)];
+      document.getElementById('quote-text').textContent = `"${q.text}"`;
+      document.getElementById('quote-pronunciation').textContent = q.pronunciation || '';
+      document.getElementById('quote-translation').textContent = q.translation || '';
+      document.getElementById('quote-source').textContent = `- ${q.source}`;
+      if(!seenQuotes.some(s=>s.text===q.text)){ seenQuotes.push(q); saveDataToLocalStorage(); }
+    }
+
+    // ==== ゲーム進行 ====
+    function prepareBattle(){
+      if(totalTime<=0){ showModal('エラー','有効な時間を設定してください。'); return; }
+      showMonsterSelection();
+    }
+
+    function getFullHp(mon, level){ return Math.round(mon.baseHp * (1 + (level - 1) * 0.15)); }
+
+    function calculateWinProbabilityVariant(monster, monsterLevel){
+      const playerAttack = (playerData.level * 15 + 30);
+      const monsterAttack = (monster.baseAttack * (1 + monsterLevel * 0.08));
+      const monsterFullHp = getFullHp(monster, monsterLevel);
+      const playerPower = playerAttack / monsterFullHp;
+      const monsterPower = monsterAttack / playerData.maxHp;
+      if (monsterPower <= 0) return 99;
+      const ratio = playerPower / monsterPower;
+      let p = ratio > 1 ? 50 + (1 - 1/ratio) * 50 : ratio * 50;
+      return Math.max(5, Math.min(99, Math.round(p)));
+    }
+
+    function displayName(mon){
+      const v = mon.variant;
+      const label = (v === 'normal') ? '' : ({ master:'師範', awaken:'覚醒', ultimate:'最強' }[v] || '');
+      if(label==='師範') return `${mon.name}師範`;
+      if(label==='覚醒') return `覚醒した${mon.name}`;
+      if(label==='最強') return `最強の${mon.name}`;
+      return mon.name;
+    }
+
+    function wrapWithVariant(base, variantKey){
+      const VARS = { normal:{stat:1,exp:1}, master:{stat:1.5,exp:2}, awaken:{stat:5,exp:10}, ultimate:{stat:10,exp:20} };
+      const v = VARS[variantKey] || VARS.normal;
+      return { ...base, variant: variantKey, baseHp: Math.round(base.baseHp * v.stat), baseAttack: Math.round(base.baseAttack * v.stat), baseExp: Math.round(base.baseExp * v.exp) };
+    }
+
+    function showMonsterSelection(){
+      const isMasterBattlePending = playerData.level%10===0 && playerData.masterDefeatedLevel<playerData.level;
+      monsterOptionsContainer.innerHTML='';
+      let options=[];
+      if(isMasterBattlePending){
+        monsterSelectTitle.textContent='師範からの挑戦状！';
+        const masterTier = playerData.level/10;
+        const baseMaster = MONSTER_POOL.filter(m=>m.tier===masterTier-1).sort((a,b)=>b.baseHp-a.baseHp)[0] || MONSTER_POOL[0];
+        const wrapped = wrapWithVariant(baseMaster, 'master');
+        wrapped.isMaster = true;
+        options.push(wrapped);
+      } else {
+        monsterSelectTitle.textContent='対戦相手を選んでください';
+        let pool=[];
+        MONSTER_POOL.forEach(m=>{
+          const rw = rarityWeights[m.rarity] || 0;
+          for(let i=0;i<rw;i++) pool.push(m);
+        });
+        let variantPool=[];
+        const VARW = { normal:1.0, master:0.5, awaken:0.3, ultimate:0.1 };
+        pool.forEach(base=>{
+          Object.keys(VARW).forEach(vk=>{
+            const count = Math.max(1, Math.round((rarityWeights[base.rarity]||1) * VARW[vk]));
+            for(let i=0;i<count;i++) variantPool.push(wrapWithVariant(base, vk));
+          });
+        });
+        const unique=new Set(); let tries=0;
+        while(unique.size<3 && variantPool.length && tries<200){
+          const pick = variantPool[Math.floor(Math.random()*variantPool.length)];
+          unique.add(JSON.stringify({ id: pick.id, variant: pick.variant })); tries++;
+        }
+        options = Array.from(unique).map(s=>{
+          const {id,variant} = JSON.parse(s);
+          const base = MONSTER_POOL.find(m=>m.id===id);
+          return wrapWithVariant(base, variant);
+        });
+      }
+
+      options.forEach(mon=>{
+        const level = isMasterBattlePending?playerData.level:Math.max(1, Math.min(999, playerData.level + (Math.floor(Math.random()*5)-2)));
+        const shown = { ...mon, level };
+        const winProb = calculateWinProbabilityVariant(shown, level);
+        const fullHp = getFullHp(shown, level);
+        const optionEl = document.createElement('div');
+        optionEl.className='monster-option p-4 border border-gray-600 rounded-lg flex flex-col items-center';
+        optionEl.innerHTML = `
+          <h4 class="text-lg font-bold game-font">${displayName(shown)}</h4>
+          <p class="text-sm mb-2">Lv.${level}</p>
+          <canvas width="64" height="64"></canvas>
+          <p class="text-sm text-cyan-400 mt-2">勝率: ${winProb}%</p>
+        `;
+        optionEl.addEventListener('click', ()=>{
+          const monsterFullHp = fullHp;
+          currentMonster = { ...shown, hp: monsterFullHp, maxHp: monsterFullHp };
+          monsterSelectModal.classList.add('hidden');
+          updateUI();
+          startFocus();
+        });
+        monsterOptionsContainer.appendChild(optionEl);
+        const canvasEl = optionEl.querySelector('canvas');
+        const tctx = canvasEl.getContext('2d');
+        tctx.imageSmoothingEnabled=false;
+        if (!drawMonsterFromAtlasOrFallback(tctx, shown, 32, 60, 0.12)) {
+          drawMonsterSprite(tctx, shown, 32, 60, 1);
+        }
+      });
+      monsterSelectModal.classList.remove('hidden');
+    }
+
+    function startFocus(){
+      if(isTimerRunning) return;
+      remainingTime = totalTime;
+      isTimerRunning=true; isPaused=false;
+      controlPanel.classList.add('hidden');
+      battleControls.classList.remove('hidden');
+      battleMessage.textContent="集中モード... 戦闘は終了後に解決します。";
+      startTime = Date.now();
+      endTimer = setTimeout(endFocus, remainingTime);
+      animationFrameId = requestAnimationFrame(updateDisplayLoop);
+    }
+    function updateDisplayLoop(){
+      if(!isTimerRunning) return;
+      if(!isPaused){
+        const elapsed = Date.now()-startTime;
+        const currentRemaining = remainingTime - elapsed;
+        updateTimerDisplay(currentRemaining>0?currentRemaining:0);
+      }
+      animationFrameId = requestAnimationFrame(updateDisplayLoop);
+    }
+    function endFocus(){
+      cancelAnimationFrame(animationFrameId);
+      if(!isTimerRunning) return;
+      isTimerRunning=false;
+      battleControls.classList.add('hidden');
+      document.getElementById('post-focus-controls').classList.remove('hidden');
+      battleMessage.textContent="集中お疲れ様でした！";
+    }
+
+    async function startTurnBasedBattle(){
+      timerView.classList.add('hidden');
+      battleView.classList.remove('hidden');
+      resizeCanvas();
+      requestAnimationFrame(gameLoop);
+
+      const playerTotalDamage = (playerData.level*15 + 30) * (totalTime/10000);
+      const monsterAttacks = Math.floor(totalTime/5000);
+
+      for(let i=0;i<monsterAttacks+1;i++){
+        if(currentMonster.hp<=0 || playerData.hp<=0) break;
+        const playerDamage = playerTotalDamage/(monsterAttacks+1) * (0.8+Math.random()*0.4);
+        currentMonster.hp = Math.max(0, currentMonster.hp - playerDamage);
+        battleMessage.textContent = `${playerData.name}の攻撃！`;
+        showDamageEffect(Math.round(playerDamage), canvas.width/(window.devicePixelRatio||1)*0.7, canvas.height/(window.devicePixelRatio||1)*0.5, 'white');
+        updateUI(); await new Promise(r=>setTimeout(r,1000));
+        if(currentMonster.hp<=0){ winBattle(); return; }
+
+        if(i>=monsterAttacks) break;
+        const monsterDamage = (currentMonster.baseAttack * (1+currentMonster.level*0.08))*(0.8+Math.random()*0.4);
+        playerData.hp = Math.max(0, playerData.hp - monsterDamage);
+        battleMessage.textContent = `${displayName(currentMonster)}の攻撃！`;
+        showDamageEffect(Math.round(monsterDamage), canvas.width/(window.devicePixelRatio||1)/4, canvas.height/(window.devicePixelRatio||1)*0.6, 'red');
+        updateUI(); await new Promise(r=>setTimeout(r,1000));
+        if(playerData.hp<=0){ gameOver(); return; }
+      }
+      showModal("決着つかず...","モンスターを倒しきれなかった...");
+      endOfBattleCleanup();
+    }
+
+    function winBattle(){
+      if(currentMonster.isMaster){
+        playerData.masterDefeatedLevel = Math.max(playerData.masterDefeatedLevel, currentMonster.level);
+      }
+      const timeBonus = timeBonuses[totalTime/60000] || 1;
+      let baseExp = currentMonster.baseExp;
+      if(currentMonster.id==='pineapple'){
+        const levelStr = String(playerData.level);
+        const lastThree = levelStr.length>3 ? levelStr.substring(levelStr.length-3) : levelStr;
+        baseExp = parseInt(lastThree.padEnd(4,'7'),10);
+      }
+      const earnedExp = Math.round(baseExp*(1+currentMonster.level*0.1)*timeBonus);
+      playerData.exp += earnedExp;
+
+      const minutesStudied = totalTime/60000;
+      const earningsThisSession = minutesStudied*(playerData.hourlyWage/60);
+      playerData.totalEarnings += earningsThisSession;
+      playerData.totalStudyTime += totalTime;
+
+      let message = `${displayName(currentMonster)} Lv.${currentMonster.level} をやっつけた！\n${earnedExp}の経験値を獲得！\n\n今回の学習時間: ${formatDuration(totalTime)}\n今回の収入: ${Math.floor(earningsThisSession)}円`;
+
+      let expForNextLevel = Math.round(60*Math.pow(playerData.level,1.4));
+      let levelsGained=0;
+      while(playerData.exp>=expForNextLevel && playerData.level<999){
+        levelsGained++;
+        playerData.exp-=expForNextLevel;
+        playerData.level++;
+        playerData.maxHp+=20;
+        playerData.hourlyWage+=10;
+        expForNextLevel = Math.round(60*Math.pow(playerData.level,1.4));
+      }
+      if(levelsGained>0){
+        playerData.hp=playerData.maxHp;
+        message+=`\n\nレベルが ${levelsGained} 上がって ${playerData.level} になった！\nHPが全回復し、時給が${10*levelsGained}円上がった！`;
+      } else {
+        playerData.hp = Math.min(playerData.maxHp, playerData.hp + playerData.maxHp*0.2);
+      }
+      addToLog(); updateCollection();
+      showModal("勝利！", message);
+      endOfBattleCleanup();
+    }
+
+    function retreat(){
+      if(!isTimerRunning) return;
+      showConfirmation("中断しますか？","本当に集中を中断しますか？\nこのセッションは記録されません。", ()=>{
+        clearTimeout(endTimer); cancelAnimationFrame(animationFrameId);
+        isTimerRunning=false; isPaused=false; pauseButton.textContent="一時停止";
+        showModal("中断","集中を中断した...");
+        endOfBattleCleanup();
+      });
+    }
+
+    function gameOver(){
+      const timeBonus = timeBonuses[totalTime/60000] || 1;
+      const consolationExp = Math.round(currentMonster.baseExp*0.2*timeBonus);
+      playerData.exp += consolationExp;
+
+      const minutesStudied = totalTime/60000;
+      const earningsThisSession = minutesStudied*(playerData.hourlyWage/60);
+      playerData.totalEarnings += earningsThisSession;
+      playerData.totalStudyTime += totalTime;
+
+      showModal("敗北...", `モンスターに敗れてしまった...\n${consolationExp}の経験値を獲得！\n\n今回の学習時間: ${formatDuration(totalTime)}\n今回の収入: ${Math.floor(earningsThisSession)}円\n\nHPは全回復した。`);
+      playerData.hp = playerData.maxHp;
+      endOfBattleCleanup();
+    }
+
+    function endOfBattleCleanup(){
+      controlPanel.classList.remove('hidden');
+      battleControls.classList.add('hidden');
+      document.getElementById('post-focus-controls').classList.add('hidden');
+      setTimeout(()=>{
+        timerView.classList.remove('hidden');
+        battleView.classList.add('hidden');
+        battleMessage.textContent="次の集中へ...";
+        displayRandomQuote();
+        spawnDummyMonster();
+        updateUI();
+        saveDataToLocalStorage(true);
+      }, 500);
+    }
+
+    function spawnDummyMonster(){ currentMonster = null; }
+
+    // ==== UI/保存 ====
+    function updateUI(){
+      playerNameSpan.textContent = playerData.name;
+      playerLevelSpan.textContent = playerData.level;
+      playerHpSpan.textContent = Math.ceil(playerData.hp);
+      playerMaxHpSpan.textContent = playerData.maxHp;
+      playerHpBar.style.width = `${(playerData.hp/playerData.maxHp)*100}%`;
+      totalEarningsDisplay.textContent = `${Math.floor(playerData.totalEarnings)}円`;
+      wageDisplay.textContent = `${playerData.hourlyWage}円`;
+      titleDisplay.textContent = getTitle(playerData.totalStudyTime);
+
+      if(currentMonster){
+        monsterNameSpan.textContent = displayName(currentMonster);
+        monsterLevelSpan.textContent = `Lv.${currentMonster.level}`;
+        monsterHpSpan.textContent = Math.ceil(currentMonster.hp);
+        monsterMaxHpSpan.textContent = currentMonster.maxHp;
+        monsterHpBar.style.width = `${(currentMonster.hp/currentMonster.maxHp)*100}%`;
+      } else {
+        monsterNameSpan.textContent="???";
+        monsterLevelSpan.textContent="Lv.??";
+        monsterHpBar.style.width='100%';
+      }
+    }
+
+    function saveDataToLocalStorage(alsoCloud=false){
+      try{
+        const saveTime = new Date().toLocaleString('ja-JP');
+        playerData.lastSaveTime = saveTime;
+        const allData = { playerData, studyLog, monsterCollection, seenQuotes };
+        localStorage.setItem('focusQuestSaveData', JSON.stringify(allData));
+        saveTimestamp.textContent = `最終セーブ: ${saveTime}`;
+        if(alsoCloud && auth.currentUser){ cloudSave(buildSavePayload(), false); }
+      }catch(e){
+        console.error("LocalStorage保存失敗:", e);
+        saveTimestamp.textContent = `セーブ失敗: ${new Date().toLocaleString('ja-JP')}`;
+      }
+    }
+
+    function loadDataFromLocalStorage(){
+      const saved = localStorage.getItem('focusQuestSaveData');
+      if(saved){
+        const data = JSON.parse(saved);
+        playerData = data.playerData || playerData;
+        if(!playerData.totalStudyTime) playerData.totalStudyTime=0;
+        if(!playerData.totalEarnings)  playerData.totalEarnings=0;
+        if(!playerData.hourlyWage)     playerData.hourlyWage=1177;
+        studyLog = data.studyLog || [];
+        monsterCollection = data.monsterCollection || {};
+        seenQuotes = data.seenQuotes || [];
+        if(playerData.lastSaveTime){
+          saveTimestamp.textContent = `最終セーブ: ${playerData.lastSaveTime}`;
+        } else { saveTimestamp.textContent = 'セーブデータがありません'; }
+      } else {
+        saveTimestamp.textContent = 'セーブデータがありません';
+      }
+    }
+
+    function getTitle(totalMs){
+      const hours = totalMs/(1000*60*60);
+      for(const t of titles){ if(hours>=t.hours) return t.name; }
+      return "-";
+    }
+    function formatDuration(ms){
+      const totalSeconds = Math.floor(ms/1000);
+      const h = Math.floor(totalSeconds/3600);
+      const m = Math.floor((totalSeconds%3600)/60);
+      const s = totalSeconds%60;
+      let r=''; if(h>0) r+=`${h}時間 `; if(m>0 || h>0) r+=`${m}分 `; r+=`${s}秒`; return r;
+    }
+    function addToLog(){
+      const taskName = document.getElementById('task-name').value || '名もなきクエスト';
+      const fullTask = `【${selectedCategory}】 ${taskName}`;
+      studyLog.unshift({ task:fullTask, duration:totalTime, date:new Date().toLocaleString('ja-JP') });
+      if(studyLog.length>50) studyLog.pop();
+    }
+
+    function showLog(){
+      infoModalTitle.textContent="冒険の記録";
+      let content = studyLog.length===0
+        ? `<p class="text-gray-500">まだ記録がありません。</p>`
+        : studyLog.map(e=>`
+            <div class="p-2 border-b border-cyan-900">
+              <p class="font-bold">${e.task}</p>
+              <p class="text-sm text-gray-400">${formatDuration(e.duration)} - ${e.date}</p>
+            </div>
+          `).join('');
+      infoModalBody.innerHTML=content;
+      infoModal.classList.remove('hidden');
+    }
+
+    function showStatus(){
+      infoModalTitle.textContent="ステータス";
+      const expForNextLevel = Math.round(60*Math.pow(playerData.level,1.4));
+      const requiredExp = Math.max(0, expForNextLevel - Math.round(playerData.exp));
+      const attackPower = Math.round(playerData.level*15 + 30);
+      let content = `
+        <div class="space-y-4 text-lg">
+          <div class="flex justify-between"><span>名前:</span><span class="game-font">${playerData.name}</span></div>
+          <div class="flex justify-between"><span>称号:</span><span class="game-font">${getTitle(playerData.totalStudyTime)}</span></div>
+          <div class="flex justify-between"><span>レベル:</span><span class="game-font">${playerData.level}</span></div>
+          <div class="flex justify-between"><span>HP:</span><span class="game-font">${Math.ceil(playerData.hp)} / ${playerData.maxHp}</span></div>
+          <div class="flex justify-between"><span>攻撃力:</span><span class="game-font">${attackPower}</span></div>
+          <div class="flex justify-between"><span>次のレベルまで:</span><span class="game-font">${requiredExp} EXP</span></div>
+          <hr class="my-2 border-cyan-700/50">
+          <div class="flex justify-between"><span>総学習時間:</span><span class="game-font">${formatDuration(playerData.totalStudyTime)}</span></div>
+          <div class="flex justify-between"><span>累計収入額:</span><span class="game-font">${Math.floor(playerData.totalEarnings)}円</span></div>
+          <div class="flex justify-between"><span>現在の時給:</span><span class="game-font">${playerData.hourlyWage}円</span></div>
+          <hr class="my-4 border-cyan-700/50">
+          <div>
+            <label for="name-input" class="block mb-2 text-md">名前を変更する:</label>
+            <div class="flex gap-2">
+              <input type="text" id="name-input" value="${playerData.name}" class="w-full px-3 py-2 bg-gray-900/70 border border-gray-600 rounded-md">
+              <button id="save-name-button" class="stylish-button">保存</button>
+            </div>
+          </div>
+        </div>`;
+      infoModalBody.innerHTML=content;
+      document.getElementById('save-name-button').addEventListener('click', ()=>{
+        const newName = document.getElementById('name-input').value;
+        if(newName && newName.length>0 && newName.length<10){
+          playerData.name=newName; saveDataToLocalStorage(true); updateUI(); showStatus();
+        }else{ alert("名前は1文字以上10文字未満にしてください。"); }
+      });
+      infoModal.classList.remove('hidden');
+    }
+
+    function showQuoteCollection(){
+      infoModalTitle.textContent="名言集";
+      let content = seenQuotes.length===0
+        ? `<p class="text-gray-500">まだ名言を集めていません。</p>`
+        : seenQuotes.map(q=>`
+            <div class="p-4 border-b border-cyan-900">
+              <p class="text-md italic">"${q.text}"</p>
+              <p class="text-sm text-gray-400 mt-1">${q.pronunciation || ''}</p>
+              <p class="text-md mt-2">${q.translation || ''}</p>
+              <p class="text-xs text-right mt-2 text-cyan-400">- ${q.source}</p>
+            </div>
+          `).join('');
+      infoModalBody.innerHTML=content;
+      infoModal.classList.remove('hidden');
+    }
+
+    function togglePause(){
+      if(!isTimerRunning) return;
+      isPaused=!isPaused;
+      if(isPaused){
+        clearTimeout(endTimer);
+        remainingTime -= (Date.now()-startTime);
+        pauseButton.textContent="再開する";
+      } else {
+        startTime = Date.now();
+        endTimer = setTimeout(endFocus, remainingTime);
+        pauseButton.textContent="一時停止";
+      }
+    }
+
+    function updateTimerDisplay(ms){
+      const totalSeconds = ms/1000;
+      const h = Math.floor(totalSeconds/3600);
+      const m = Math.floor((totalSeconds%3600)/60);
+      const s = Math.floor(totalSeconds%60);
+      const millis = Math.floor((ms%1000)/10);
+      timerDisplay.childNodes[0].nodeValue = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+      timerDisplay.childNodes[1].textContent = `:${String(s).padStart(2,'0')}`;
+      millisecondsSpan.textContent = `.${String(millis).padStart(2,'0')}`;
+    }
+    function updateXpBonusDisplay(){
+      const minutes = totalTime/60000;
+      const bonus = timeBonuses[minutes] || 1;
+      xpBonusDisplay.textContent = `経験値 ${bonus}倍ボーナス`;
+    }
+
+    function showModal(title,message){
+      resultModalTitle.textContent=title;
+      resultModalMessage.innerText=message;
+      modalButtonContainer.innerHTML=`<button id="result-modal-close" class="stylish-button">とじる</button>`;
+      document.getElementById('result-modal-close').onclick=()=>resultModal.classList.add('hidden');
+      resultModal.classList.remove('hidden');
+    }
+    function showConfirmation(title,message,onConfirm){
+      resultModalTitle.textContent=title;
+      resultModalMessage.innerText=message;
+      modalButtonContainer.innerHTML=`
+        <button id="modal-cancel" class="stylish-button">いいえ</button>
+        <button id="modal-confirm" class="stylish-button is-danger">はい</button>`;
+      document.getElementById('modal-confirm').onclick=()=>{ resultModal.classList.add('hidden'); onConfirm(); };
+      document.getElementById('modal-cancel').onclick=()=>{ resultModal.classList.add('hidden'); };
+      resultModal.classList.remove('hidden');
+    }
+    function showDamageEffect(text,x,y,color='white'){
+      damageEffects.push({ text:text.toString(), x,y, alpha:1, vy:-1, color });
+      if(color==='red'){ battleView.classList.add('shake'); setTimeout(()=>battleView.classList.remove('shake'),500); }
+    }
+
+    // 復活の呪文
+    function generateResurrectionSpell(){
+      infoModalTitle.textContent="復活の呪文";
+      try{
+        const saveData = { playerData, studyLog, monsterCollection, seenQuotes };
+        const jsonString = JSON.stringify(saveData);
+        const compressed = pako.deflate(jsonString, { to:'string' });
+        const spell = btoa(compressed);
+        infoModalBody.innerHTML = `
+          <p class="mb-4">この呪文をコピーして、安全な場所に保管してください。</p>
+          <textarea id="spell-output" class="w-full h-32 p-2 bg-gray-900/70 border border-gray-600 rounded-md" readonly>${spell}</textarea>
+          <button id="copy-spell-button" class="stylish-button w-full mt-4">コピー</button>`;
+        document.getElementById('copy-spell-button').addEventListener('click', ()=>{
+          const ta=document.getElementById('spell-output'); ta.select(); document.execCommand('copy');
+        });
+      }catch(e){
+        console.error("呪文生成失敗:",e);
+        infoModalBody.innerHTML = `<p class="text-red-500">呪文の生成に失敗しました。</p>`;
+      }
+      infoModal.classList.remove('hidden');
+    }
+
+    function showUseSpellModal(){
+      infoModalTitle.textContent="呪文をとなえる";
+      infoModalBody.innerHTML = `
+        <p class="mb-4">保管した復活の呪文を貼り付けてください。</p>
+        <textarea id="spell-input" class="w-full h-32 p-2 bg-gray-900/70 border border-gray-600 rounded-md"></textarea>
+        <button id="restore-button" class="stylish-button w-full mt-4">データを復元</button>`;
+      document.getElementById('restore-button').addEventListener('click', ()=>{
+        const spell = document.getElementById('spell-input').value;
+        if(!spell) return;
+        try{
+          const bin = atob(spell);
+          const comp = new Uint8Array(bin.length);
+          for(let i=0;i<bin.length;i++){ comp[i]=bin.charCodeAt(i); }
+          const json = pako.inflate(comp, { to:'string' });
+          const loaded = JSON.parse(json);
+          playerData = loaded.playerData || playerData;
+          studyLog = loaded.studyLog || [];
+          monsterCollection = loaded.monsterCollection || {};
+          seenQuotes = loaded.seenQuotes || [];
+          saveDataToLocalStorage(true);
+          updateUI();
+          infoModal.classList.add('hidden');
+          showModal("成功","冒険の書は復活した！");
+        }catch(e){
+          console.error("呪文復元失敗:",e);
+          alert("呪文が正しくありません。");
+        }
+      });
+      infoModal.classList.remove('hidden');
+    }
+
+    // ===== ▼▼▼ 図鑑（統合版） ▼▼▼
+    function openDexModal(){
+      // 既定はアトラス完全表示タブ
+      switchDexTab('atlas');
+      renderAtlasGrid();   // JSONから全フレームを並べる
+      renderBookGrid();    // 従来の撃破ベース図鑑
+      dexModal.classList.remove('hidden');
+    }
+    function closeDexModal(){ dexModal.classList.add('hidden'); }
+
+    function switchDexTab(which){
+      if(which==='atlas'){
+        tabAtlas.classList.add('active'); tabBook.classList.remove('active');
+        dexAtlasContainer.classList.remove('hidden'); dexBookContainer.classList.add('hidden');
+      }else{
+        tabBook.classList.add('active'); tabAtlas.classList.remove('active');
+        dexBookContainer.classList.remove('hidden'); dexAtlasContainer.classList.add('hidden');
+      }
+    }
+
+    // アトラス完全表示：右端切れ防止のスケーリング
+    function calcScaleForCard(frame){
+      const maxW = 240, maxH = 240; // カード内最大
+      const sx = maxW / frame.w;
+      const sy = maxH / frame.h;
+      return Math.min(1, sx, sy);
+    }
+
+    function renderAtlasGrid(){
+      dexAtlasContainer.innerHTML = '';
+      if(!atlasReady){ dexStatus.textContent='画像/JSONの読み込みを待機中…'; return; }
+      const atlasW = atlasMetaW || atlasImage?.naturalWidth || 0;
+      const atlasH = atlasMetaH || atlasImage?.naturalHeight || 0;
+
+      for(const item of atlasList){
+        const {name, frame} = item;
+        const scale = calcScaleForCard(frame);
+        const w = Math.round(frame.w * scale);
+        const h = Math.round(frame.h * scale);
+
+        const card = document.createElement('article');
+        card.className = 'dex-card rounded-xl p-3 hover:scale-[1.01] transition-transform';
+
+        const sprite = document.createElement('div');
+        sprite.className = 'dex-sprite rounded-md mx-auto';
+        sprite.style.width = w + 'px';
+        sprite.style.height = h + 'px';
+        sprite.style.backgroundImage = `url("${lastAtlasUrl}")`;
+        sprite.style.backgroundSize = `${atlasW*scale}px ${atlasH*scale}px`;
+        sprite.style.backgroundPosition = `-${frame.x*scale}px -${frame.y*scale}px`;
+
+        const title = document.createElement('div');
+        title.className = 'mt-3 text-sm font-bold game-font text-center';
+        title.textContent = name;
+
+        const meta = document.createElement('div');
+        meta.className = 'text-[11px] text-cyan-200/80 text-center';
+        meta.textContent = `x:${frame.x}, y:${frame.y}, w:${frame.w}, h:${frame.h}`;
+
+        card.appendChild(sprite);
+        card.appendChild(title);
+        card.appendChild(meta);
+
+        // クリックで拡大モーダル（簡易）
+        card.addEventListener('click', ()=>{
+          infoModalTitle.textContent = name;
+          const containerW = 520, containerH = 520;
+          const sx = (containerW - 16) / frame.w;
+          const sy = (containerH - 16) / frame.h;
+          const sc = Math.min(1, sx, sy);
+          infoModalBody.innerHTML = `
+            <div class="grid md:grid-cols-2 gap-4 items-start">
+              <div class="w-full"><div id="modalSprite" class="dex-sprite rounded-lg w-full h-[520px] bg-black/20"></div></div>
+              <div class="text-sm space-y-2">
+                <div class="grid grid-cols-5 gap-2">
+                  <span class="col-span-2 text-cyan-300/80">x, y</span><span class="col-span-3">${frame.x}, ${frame.y}</span>
+                  <span class="col-span-2 text-cyan-300/80">w, h</span><span class="col-span-3">${frame.w}, ${frame.h}</span>
+                  <span class="col-span-2 text-cyan-300/80">ソース</span><span class="col-span-3 break-all">${lastAtlasUrl}</span>
+                </div>
+              </div>
+            </div>`;
+          setTimeout(()=>{
+            const modalSprite = document.getElementById('modalSprite');
+            const aW = atlasW, aH = atlasH;
+            modalSprite.style.backgroundImage = `url("${lastAtlasUrl}")`;
+            modalSprite.style.backgroundSize = `${aW*sc}px ${aH*sc}px`;
+            modalSprite.style.backgroundPosition = `-${frame.x*sc}px -${frame.y*sc}px`;
+          },0);
+          infoModal.classList.remove('hidden');
+        });
+
+        dexAtlasContainer.appendChild(card);
+      }
+      dexStatus.textContent = `frames: ${atlasList.length} / atlas: ${atlasW}×${atlasH}`;
+    }
+
+    // 従来の撃破図鑑（通常撃破で名称表示）
+    function renderBookGrid(){
+      const container = document.createElement('div');
+      container.className = 'grid grid-cols-1 md:grid-cols-2 gap-4';
+      MONSTER_POOL.forEach(mon=>{
+        const entry = monsterCollection[mon.id];
+        const knownNormal = entry && entry.normal && entry.normal.count>0;
+        const knownAny = !!entry;
+        const cls = knownAny ? '' : 'opacity-60';
+        const tile = document.createElement('div');
+        tile.className = `dex-card rounded-xl p-3 ${cls}`;
+        const canvasEl = document.createElement('canvas');
+        canvasEl.width = 128; canvasEl.height = 128;
+        const tctx = canvasEl.getContext('2d'); tctx.imageSmoothingEnabled=false;
+
+        let drawn=false;
+        if(knownNormal){
+          const temp = { name: mon.atlasBaseName, atlasBaseName: mon.atlasBaseName, variant:'normal' };
+          drawn = drawMonsterFromAtlasOrFallback(tctx, temp, 64, 110, 0.24);
+        }
+        if(!drawn){
+          tctx.fillStyle = '#333'; tctx.fillRect(16, 40, 96, 72);
+        }
+
+        const title = document.createElement('div');
+        title.className = 'mt-2 text-sm font-bold game-font';
+        title.textContent = knownAny ? mon.name : '？？？？';
+
+        const tags = [];
+        if(entry?.master)   tags.push('🔰師範');
+        if(entry?.awaken)   tags.push('✨覚醒');
+        if(entry?.ultimate) tags.push('🔥最強');
+        const footer = document.createElement('div');
+        footer.className = 'text-[11px] text-cyan-200/80';
+        footer.textContent = knownAny ? `討伐数: ${(entry.normal?.count||0)+(entry.master?.count||0)+(entry.awaken?.count||0)+(entry.ultimate?.count||0)}　${tags.join(' / ')}` : '';
+
+        tile.appendChild(canvasEl);
+        tile.appendChild(title);
+        tile.appendChild(footer);
+        container.appendChild(tile);
+      });
+      dexBookContainer.innerHTML = '';
+      dexBookContainer.appendChild(container);
+    }
+    // ===== ▲▲▲ 図鑑（統合版）ここまで ▲▲▲
+
+    function updateCollection(){
+      if(!currentMonster) return;
+      const id = currentMonster.id;
+      const v  = currentMonster.variant || 'normal';
+      const entry = monsterCollection[id] || {};
+      const cur = entry[v] || { count:0, maxLevel:0 };
+      entry[v] = { count: cur.count + 1, maxLevel: Math.max(cur.maxLevel, currentMonster.level) };
+      monsterCollection[id] = entry;
+    }
+
+    // ==== 起動 ====
+    document.addEventListener('DOMContentLoaded', initialize);
+  </script>
+</body>
+</html>
